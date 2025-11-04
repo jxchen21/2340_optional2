@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+  .text-outline-black {
+    text-shadow:
+      -1px -1px 0 #2E2E2E,
+       1px -1px 0 #2E2E2E,
+      -1px  1px 0 #2E2E2E,
+       1px  1px 0 #2E2E2E;
+  }
+</style>
+<header class="masthead bg-index text-white text-center py-4">
+  <div class="container d-flex align-items-center flex-column pt-2">
+    <h2 class="text-outline-black">TasteBuds</h2>
+    <p class="text-outline-black">Your Ticket to Unlimited Meals!</p>
+  </div>
+</header>
+<div class="p-3">
+  <div class="container">
+    <div class="row mt-3">
+      <div class="col mx-auto text-center mb-3">
+        <h4>Welcome to the best meal planner!!</h4>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
