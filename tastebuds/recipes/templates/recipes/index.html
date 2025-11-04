@@ -9,21 +9,54 @@
         <hr />
       </div>
     </div>
+    <div class="row mb-3">
+      <div class="col">
+        <form method="get" class="form-inline">
+          <div class="input-group mb-2">
+            <input type="text" name="category" placeholder="Category (e.g., Dessert)" class="form-control" value="{{ template_data.category_term|default_if_none:'' }}">
+            <input type="text" name="region" placeholder="Region (e.g., Italian)" class="form-control ml-2" value="{{ template_data.region_term|default_if_none:'' }}">
+            <div class="input-group-append">
+              <button class="btn btn-dark" type="submit">Search</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
     <div class="row">
-      {% for recipe in template_data.recipes %}
-      <div class="col-md-4 col-lg-3 mb-2">
-        <div class="p-2 card align-items-center pt-4">
-          <img src="{{ recipe.strMealThumb }}"
-            class="card-img-top rounded">
-          <div class="card-body text-center">
-            <a href="{% url 'recipes.show' id=recipe.idMeal %}"
-              class="btn bg-dark text-white">
-              {{ recipe.strMeal }}
-            </a>
+      {% if template_data.search_results %}
+        <div class="col-12 mb-3">
+          <h4>Search results ({{ template_data.search_type }}: {{ template_data.search_term }})</h4>
+        </div>
+        {% for recipe in template_data.search_results %}
+          <div class="col-md-4 col-lg-3 mb-2">
+            <div class="p-2 card align-items-center pt-4">
+              <img src="{{ recipe.strMealThumb }}" class="card-img-top rounded">
+              <div class="card-body text-center">
+                <a href="{% url 'recipes.show' id=recipe.idMeal %}" class="btn bg-dark text-white">{{ recipe.strMeal }}</a>
+              </div>
+            </div>
+          </div>
+        {% empty %}
+          <div class="col-12">
+            <p>No results found for your search.</p>
+          </div>
+        {% endfor %}
+      {% else %}
+        {% for recipe in template_data.recipes %}
+        <div class="col-md-4 col-lg-3 mb-2">
+          <div class="p-2 card align-items-center pt-4">
+            <img src="{{ recipe.strMealThumb }}"
+              class="card-img-top rounded">
+            <div class="card-body text-center">
+              <a href="{% url 'recipes.show' id=recipe.idMeal %}"
+                class="btn bg-dark text-white">
+                {{ recipe.strMeal }}
+              </a>
+            </div>
           </div>
         </div>
-      </div>
-      {% endfor %}
+        {% endfor %}
+      {% endif %}
     </div>
   </div>
 </div>
