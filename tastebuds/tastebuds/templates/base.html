@@ -41,6 +41,9 @@
           <div class="navbar-nav ms-auto navbar-ml">
             <a class="nav-link" href=
               "{% url 'recipes.index' %}">Recipes</a>
+            {% if user.is_authenticated %}
+            <a class="nav-link" href="{% url 'recipes.planner' %}">Meal Planner</a>
+            {% endif %}
             <a class="nav-link"
                href="{% url 'home.about' %}">About</a>
             <div class="vr bg-white mx-2 d-none

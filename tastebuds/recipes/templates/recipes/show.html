@@ -6,6 +6,15 @@
     <div class="row mt-3">
       <div class="col-md-6 mb-3">
         <h2>{{ template_data.title }}</h2>
+        {% if user.is_authenticated and template_data.recipe %}
+        <button id="save-recipe-btn" class="btn btn-primary mb-3" data-recipe-id="{{ template_data.recipe.idMeal }}">
+          {% if template_data.is_saved %}
+            <span class="save-text">Unsave Recipe</span>
+          {% else %}
+            <span class="save-text">Save Recipe</span>
+          {% endif %}
+        </button>
+        {% endif %}
         <h3>Ingredients</h3>
         <ul>
         {% for item in template_data.ingredients %}
@@ -15,10 +24,63 @@
         <h3>Instructions</h3>
         <p>{{ template_data.instructions }}</p>
     </div>
+    {% if template_data.recipe %}
     <div class="col-md-6 mx-auto mb-3 text-center">
         <img src="{{ template_data.recipe.strMealThumb }}"
             class="card-img-top rounded">
     </div>
+    {% endif %}
   </div>
 </div>
+{% if user.is_authenticated %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const saveBtn = document.getElementById('save-recipe-btn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function() {
+            const recipeId = saveBtn.getAttribute('data-recipe-id');
+            // Get CSRF token
+            let csrfToken = null;
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === 'csrftoken=') {
+                    csrfToken = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+            
+            if (!csrfToken) {
+                alert('CSRF token not found. Please refresh the page.');
+                return;
+            }
+            
+            fetch(`/recipes/${recipeId}/save/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken,
+                },
+            })
+            .then(response => response.json())
+            .then(data => {
+                const saveText = saveBtn.querySelector('.save-text');
+                if (data.status === 'saved') {
+                    saveText.textContent = 'Unsave Recipe';
+                    saveBtn.classList.remove('btn-primary');
+                    saveBtn.classList.add('btn-secondary');
+                } else {
+                    saveText.textContent = 'Save Recipe';
+                    saveBtn.classList.remove('btn-secondary');
+                    saveBtn.classList.add('btn-primary');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred. Please try again.');
+            });
+        });
+    }
+});
+</script>
+{% endif %}
 {% endblock content %}

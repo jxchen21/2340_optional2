@@ -1,0 +1,301 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load recipe_filters %}
+{% block content %}
+<div class="p-3">
+  <div class="container-fluid">
+    <h2 class="mb-4">{{ template_data.title }}</h2>
+    
+    {% if not user.is_authenticated %}
+    <div class="alert alert-warning">
+      Please <a href="{% url 'accounts.login' %}">login</a> to use the meal planner.
+    </div>
+    {% else %}
+    
+    <!-- Saved Recipes Sidebar -->
+    <div class="row">
+      <div class="col-md-3 mb-4">
+        <div class="card">
+          <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">Saved Recipes</h5>
+          </div>
+          <div class="card-body" style="max-height: 600px; overflow-y: auto;">
+            {% if template_data.saved_recipes %}
+              <div id="saved-recipes-list">
+                {% for saved_recipe in template_data.saved_recipes %}
+                  <div class="card mb-2 saved-recipe-card" 
+                       draggable="true" 
+                       data-saved-recipe-id="{{ saved_recipe.id }}"
+                       style="cursor: move;">
+                    <div class="card-body p-2">
+                      {% if saved_recipe.recipe_image %}
+                        <img src="{{ saved_recipe.recipe_image }}" 
+                             class="card-img-top mb-2" 
+                             alt="{{ saved_recipe.recipe_name }}"
+                             style="height: 80px; object-fit: cover;">
+                      {% endif %}
+                      <h6 class="card-title mb-1">{{ saved_recipe.recipe_name }}</h6>
+                      <small class="text-muted">Drag to add to planner</small>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="text-muted">No saved recipes yet. <a href="{% url 'recipes.index' %}">Browse recipes</a> to save some!</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      
+      <!-- Kanban Board -->
+      <div class="col-md-9">
+        <div class="kanban-board" style="overflow-x: auto;">
+          <div class="d-flex" style="min-width: 1200px;">
+            {% for day in template_data.days %}
+              <div class="kanban-column me-3" style="min-width: 200px; flex: 1;">
+                <div class="card">
+                  <div class="card-header bg-info text-white text-center">
+                    <h6 class="mb-0">{{ day }}</h6>
+                  </div>
+                  <div class="card-body p-2" style="min-height: 500px;">
+                    {% for meal_slot in template_data.meal_slots %}
+                      <div class="meal-slot mb-3" 
+                           data-day="{{ day }}" 
+                           data-meal-slot="{{ meal_slot }}"
+                           ondrop="handleDrop(event)" 
+                           ondragover="handleDragOver(event)">
+                        <div class="meal-slot-header bg-light p-2 mb-2 rounded">
+                          <strong>{{ meal_slot }}</strong>
+                        </div>
+                        <div class="meal-slot-content" style="min-height: 100px;">
+                          {% with day_data=template_data.planner_data|get_item:day %}
+                            {% with meal_plans=day_data|get_item:meal_slot %}
+                              {% for meal_plan in meal_plans %}
+                                <div class="card mb-2 meal-plan-card" 
+                                     data-meal-plan-id="{{ meal_plan.id }}">
+                                  <div class="card-body p-2">
+                                    {% if meal_plan.saved_recipe.recipe_image %}
+                                      <img src="{{ meal_plan.saved_recipe.recipe_image }}" 
+                                           class="card-img-top mb-2" 
+                                           alt="{{ meal_plan.saved_recipe.recipe_name }}"
+                                           style="height: 60px; object-fit: cover;">
+                                    {% endif %}
+                                    <h6 class="card-title mb-1" style="font-size: 0.9rem;">
+                                      {{ meal_plan.saved_recipe.recipe_name }}
+                                    </h6>
+                                    <button class="btn btn-sm btn-danger remove-meal-btn" 
+                                            data-meal-plan-id="{{ meal_plan.id }}">
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
+                              {% endfor %}
+                            {% endwith %}
+                          {% endwith %}
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.kanban-column {
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+}
+
+.meal-slot {
+  border: 2px dashed #dee2e6;
+  border-radius: 0.375rem;
+  padding: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.meal-slot.drag-over {
+  border-color: #0d6efd;
+  background-color: #e7f1ff;
+}
+
+.saved-recipe-card {
+  transition: transform 0.2s;
+}
+
+.saved-recipe-card:hover {
+  transform: scale(1.02);
+}
+
+.saved-recipe-card.dragging {
+  opacity: 0.5;
+}
+
+.meal-plan-card {
+  transition: transform 0.2s;
+}
+
+.meal-plan-card:hover {
+  transform: scale(1.02);
+}
+</style>
+
+<script>
+let draggedElement = null;
+let draggedRecipeId = null;
+
+// Make saved recipe cards draggable
+document.addEventListener('DOMContentLoaded', function() {
+    const savedRecipeCards = document.querySelectorAll('.saved-recipe-card');
+    savedRecipeCards.forEach(card => {
+        card.addEventListener('dragstart', function(e) {
+            draggedElement = this;
+            draggedRecipeId = this.getAttribute('data-saved-recipe-id');
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.outerHTML);
+        });
+        
+        card.addEventListener('dragend', function() {
+            this.classList.remove('dragging');
+            draggedElement = null;
+            draggedRecipeId = null;
+        });
+    });
+});
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.classList.remove('drag-over');
+    
+    if (!draggedRecipeId) {
+        return;
+    }
+    
+    const mealSlot = e.currentTarget;
+    const day = mealSlot.getAttribute('data-day');
+    const mealSlotName = mealSlot.getAttribute('data-meal-slot');
+    
+    // Get CSRF token
+    const csrfToken = getCookie('csrftoken');
+    
+    // Add recipe to planner via AJAX
+    const formData = new FormData();
+    formData.append('saved_recipe_id', draggedRecipeId);
+    formData.append('day', day);
+    formData.append('meal_slot', mealSlotName);
+    
+    fetch('{% url "recipes.add_to_planner" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrfToken,
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Create meal plan card
+            const mealSlotContent = mealSlot.querySelector('.meal-slot-content');
+            const newCard = document.createElement('div');
+            newCard.className = 'card mb-2 meal-plan-card';
+            newCard.setAttribute('data-meal-plan-id', data.meal_plan_id);
+            newCard.innerHTML = `
+                <div class="card-body p-2">
+                    ${data.recipe_image ? `<img src="${data.recipe_image}" class="card-img-top mb-2" alt="${data.recipe_name}" style="height: 60px; object-fit: cover;">` : ''}
+                    <h6 class="card-title mb-1" style="font-size: 0.9rem;">${data.recipe_name}</h6>
+                    <button class="btn btn-sm btn-danger remove-meal-btn" data-meal-plan-id="${data.meal_plan_id}">
+                        Remove
+                    </button>
+                </div>
+            `;
+            mealSlotContent.appendChild(newCard);
+            
+            // Add remove button event listener
+            newCard.querySelector('.remove-meal-btn').addEventListener('click', function() {
+                removeFromPlanner(data.meal_plan_id, newCard);
+            });
+        } else {
+            alert('Error: ' + (data.error || 'Failed to add recipe to planner'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred. Please try again.');
+    });
+}
+
+// Remove meal from planner
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('remove-meal-btn')) {
+        const mealPlanId = e.target.getAttribute('data-meal-plan-id');
+        const card = e.target.closest('.meal-plan-card');
+        removeFromPlanner(mealPlanId, card);
+    }
+});
+
+function removeFromPlanner(mealPlanId, cardElement) {
+    const csrfToken = getCookie('csrftoken');
+    
+    fetch(`/recipes/planner/remove/${mealPlanId}/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrfToken,
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            cardElement.remove();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to remove recipe from planner'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred. Please try again.');
+    });
+}
+
+// Helper function to get CSRF token
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Add drag leave handler
+document.querySelectorAll('.meal-slot').forEach(slot => {
+    slot.addEventListener('dragleave', handleDragLeave);
+});
+</script>
+
+{% endblock content %}
+
