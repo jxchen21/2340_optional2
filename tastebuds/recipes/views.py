@@ -1,6 +1,10 @@
 import requests
 from django.shortcuts import render, redirect
 from django.urls import reverse
+from django.contrib import messages
+from django.db.models import Avg
+from .models import Rating
+from .forms import RatingForm
 
 
 def fetch_random_recipes(n=8):
@@ -145,10 +149,59 @@ def show(request, id):
                     'measure': measure.strip() if measure else '',
                 })
 
+    # Get all ratings for this recipe
+    ratings = Rating.objects.filter(recipe_id=id).select_related('user')
+    
+    # Calculate average rating
+    avg_rating = ratings.aggregate(Avg('rating'))['rating__avg']
+    avg_rating = round(avg_rating, 1) if avg_rating else None
+    avg_rating_int = int(round(avg_rating)) if avg_rating else 0
+    rating_count = ratings.count()
+
+    # Check if current user has already rated
+    user_rating = None
+    if request.user.is_authenticated:
+        try:
+            user_rating = Rating.objects.get(user=request.user, recipe_id=id)
+        except Rating.DoesNotExist:
+            user_rating = None
+
+    # Handle rating submission
+    form = None
+    if request.user.is_authenticated:
+        if request.method == 'POST':
+            form = RatingForm(request.POST)
+            if form.is_valid():
+                rating_obj, created = Rating.objects.update_or_create(
+                    user=request.user,
+                    recipe_id=id,
+                    defaults={
+                        'rating': form.cleaned_data['rating'],
+                        'comment': form.cleaned_data['comment']
+                    }
+                )
+                if created:
+                    messages.success(request, 'Thank you for your rating!')
+                else:
+                    messages.success(request, 'Your rating has been updated!')
+                return redirect('recipes.show', id=id)
+        else:
+            # Pre-populate form if user has already rated
+            if user_rating:
+                form = RatingForm(instance=user_rating)
+            else:
+                form = RatingForm()
+
     template_data = {
         'title': recipe.get('strMeal', 'Recipe') if recipe else 'Recipe Not Found',
         'recipe': recipe,
         'ingredients': ingredients,
         'instructions': recipe.get('strInstructions', '') if recipe else '',
+        'ratings': ratings,
+        'avg_rating': avg_rating,
+        'avg_rating_int': avg_rating_int,
+        'rating_count': rating_count,
+        'user_rating': user_rating,
+        'form': form,
     }
     return render(request, 'recipes/show.html', {'template_data': template_data})
