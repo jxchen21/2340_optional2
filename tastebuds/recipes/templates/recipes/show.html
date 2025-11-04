@@ -7,6 +7,17 @@
       <div class="col-md-6 mb-3">
         <h2>{{ template_data.title }}</h2>
         
+        <!-- Save Recipe Button -->
+        {% if user.is_authenticated and template_data.recipe %}
+        <button id="save-recipe-btn" class="btn btn-primary mb-3" data-recipe-id="{{ template_data.recipe.idMeal }}">
+          {% if template_data.is_saved %}
+            <span class="save-text">Unsave Recipe</span>
+          {% else %}
+            <span class="save-text">Save Recipe</span>
+          {% endif %}
+        </button>
+        {% endif %}
+        
         <!-- Ratings Summary -->
         <div class="mb-4">
           <h4>Ratings & Reviews</h4>
@@ -28,7 +39,6 @@
             <p class="text-muted">No ratings yet. Be the first to rate this recipe!</p>
           {% endif %}
         </div>
-
         <h3>Ingredients</h3>
         <ul>
         {% for item in template_data.ingredients %}
@@ -38,14 +48,16 @@
         <h3>Instructions</h3>
         <p>{{ template_data.instructions }}</p>
     </div>
+    {% if template_data.recipe %}
     <div class="col-md-6 mx-auto mb-3 text-center">
         <img src="{{ template_data.recipe.strMealThumb }}"
             class="card-img-top rounded">
     </div>
+    {% endif %}
   </div>
 
   <!-- Rating Form (for authenticated users) -->
-  {% if user.is_authenticated %}
+  {% if user.is_authenticated and template_data.form %}
   <div class="row mt-4">
     <div class="col-md-8">
       <div class="card">
@@ -99,7 +111,7 @@
       </div>
     </div>
   </div>
-  {% else %}
+  {% elif not user.is_authenticated %}
   <div class="row mt-4">
     <div class="col-md-8">
       <div class="alert alert-info">
@@ -155,80 +167,130 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+  // Rating form functionality
   const starRating = document.getElementById('star-rating');
   const ratingInput = document.getElementById('rating-value');
   
   // Only initialize if rating form exists (user is authenticated)
-  if (!starRating || !ratingInput) {
-    return;
-  }
-  
-  const stars = starRating.querySelectorAll('.star-icon');
-  
-  // Get initial rating value if user has already rated
-  {% if template_data.user_rating %}
-    const initialRating = {{ template_data.user_rating.rating }};
-    ratingInput.value = initialRating;
-  {% endif %}
-  
-  // Handle star click
-  stars.forEach(star => {
-    star.addEventListener('click', function() {
-      const rating = parseInt(this.getAttribute('data-rating'));
-      ratingInput.value = rating;
-      updateStars(rating);
+  if (starRating && ratingInput) {
+    const stars = starRating.querySelectorAll('.star-icon');
+    
+    // Get initial rating value if user has already rated
+    {% if template_data.user_rating %}
+      const initialRating = {{ template_data.user_rating.rating }};
+      ratingInput.value = initialRating;
+    {% endif %}
+    
+    // Handle star click
+    stars.forEach(star => {
+      star.addEventListener('click', function() {
+        const rating = parseInt(this.getAttribute('data-rating'));
+        ratingInput.value = rating;
+        updateStars(rating);
+      });
+      
+      // Handle hover for visual feedback
+      star.addEventListener('mouseenter', function() {
+        const rating = parseInt(this.getAttribute('data-rating'));
+        highlightStars(rating);
+      });
     });
     
-    // Handle hover for visual feedback
-    star.addEventListener('mouseenter', function() {
-      const rating = parseInt(this.getAttribute('data-rating'));
-      highlightStars(rating);
+    // Reset to selected value when mouse leaves
+    starRating.addEventListener('mouseleave', function() {
+      const currentRating = parseInt(ratingInput.value) || 0;
+      updateStars(currentRating);
     });
-  });
-  
-  // Reset to selected value when mouse leaves
-  starRating.addEventListener('mouseleave', function() {
-    const currentRating = parseInt(ratingInput.value) || 0;
-    updateStars(currentRating);
-  });
-  
-  // Validate form submission
-  const form = document.getElementById('rating-form');
-  const submitBtn = document.getElementById('submit-rating-btn');
-  
-  form.addEventListener('submit', function(e) {
-    if (!ratingInput.value || parseInt(ratingInput.value) < 1) {
-      e.preventDefault();
-      alert('Please select a rating by clicking on the stars.');
-      return false;
+    
+    // Validate form submission
+    const form = document.getElementById('rating-form');
+    const submitBtn = document.getElementById('submit-rating-btn');
+    
+    if (form) {
+      form.addEventListener('submit', function(e) {
+        if (!ratingInput.value || parseInt(ratingInput.value) < 1) {
+          e.preventDefault();
+          alert('Please select a rating by clicking on the stars.');
+          return false;
+        }
+      });
     }
-  });
-  
-  function updateStars(rating) {
-    stars.forEach((star, index) => {
-      if (index < rating) {
-        star.classList.remove('far');
-        star.classList.add('fas');
-      } else {
-        star.classList.remove('fas');
-        star.classList.add('far');
-      }
-    });
+    
+    function updateStars(rating) {
+      stars.forEach((star, index) => {
+        if (index < rating) {
+          star.classList.remove('far');
+          star.classList.add('fas');
+        } else {
+          star.classList.remove('fas');
+          star.classList.add('far');
+        }
+      });
+    }
+    
+    function highlightStars(rating) {
+      stars.forEach((star, index) => {
+        if (index < rating) {
+          star.classList.remove('far');
+          star.classList.add('fas');
+          star.style.color = '#ffc107'; // Bootstrap warning color
+        } else {
+          star.classList.remove('fas');
+          star.classList.add('far');
+          star.style.color = '#ffc107';
+        }
+      });
+    }
   }
   
-  function highlightStars(rating) {
-    stars.forEach((star, index) => {
-      if (index < rating) {
-        star.classList.remove('far');
-        star.classList.add('fas');
-        star.style.color = '#ffc107'; // Bootstrap warning color
-      } else {
-        star.classList.remove('fas');
-        star.classList.add('far');
-        star.style.color = '#ffc107';
+  // Save recipe functionality
+  {% if user.is_authenticated %}
+  const saveBtn = document.getElementById('save-recipe-btn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', function() {
+      const recipeId = saveBtn.getAttribute('data-recipe-id');
+      // Get CSRF token
+      let csrfToken = null;
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, 10) === 'csrftoken=') {
+          csrfToken = decodeURIComponent(cookie.substring(10));
+          break;
+        }
       }
+      
+      if (!csrfToken) {
+        alert('CSRF token not found. Please refresh the page.');
+        return;
+      }
+      
+      fetch(`/recipes/${recipeId}/save/`, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': csrfToken,
+        },
+      })
+      .then(response => response.json())
+      .then(data => {
+        const saveText = saveBtn.querySelector('.save-text');
+        if (data.status === 'saved') {
+          saveText.textContent = 'Unsave Recipe';
+          saveBtn.classList.remove('btn-primary');
+          saveBtn.classList.add('btn-secondary');
+        } else {
+          saveText.textContent = 'Save Recipe';
+          saveBtn.classList.remove('btn-secondary');
+          saveBtn.classList.add('btn-primary');
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred. Please try again.');
+      });
     });
   }
+  {% endif %}
 });
 </script>
 {% endblock content %}

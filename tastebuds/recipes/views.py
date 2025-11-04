@@ -2,8 +2,11 @@ import requests
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.db.models import Avg
-from .models import Rating
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from .models import Rating, SavedRecipe, WeeklyMealPlan
 from .forms import RatingForm
 
 
@@ -192,6 +195,17 @@ def show(request, id):
             else:
                 form = RatingForm()
 
+    # Check if recipe is saved by user
+    is_saved = False
+    saved_recipe = None
+    if request.user.is_authenticated and recipe:
+        recipe_id_str = recipe.get('idMeal', str(id))
+        try:
+            saved_recipe = SavedRecipe.objects.get(user=request.user, recipe_id=recipe_id_str)
+            is_saved = True
+        except SavedRecipe.DoesNotExist:
+            pass
+
     template_data = {
         'title': recipe.get('strMeal', 'Recipe') if recipe else 'Recipe Not Found',
         'recipe': recipe,
@@ -203,5 +217,134 @@ def show(request, id):
         'rating_count': rating_count,
         'user_rating': user_rating,
         'form': form,
+        'is_saved': is_saved,
+        'saved_recipe': saved_recipe,
     }
     return render(request, 'recipes/show.html', {'template_data': template_data})
+
+
+@login_required
+@require_POST
+def save_recipe(request, id):
+    """Save or unsave a recipe."""
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+    
+    # Fetch recipe details from API
+    url = f'https://www.themealdb.com/api/json/v1/1/lookup.php?i={id}'
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        recipe = data.get('meals', [None])[0]
+    except Exception:
+        return JsonResponse({'error': 'Recipe not found'}, status=404)
+    
+    if not recipe:
+        return JsonResponse({'error': 'Recipe not found'}, status=404)
+    
+    # Use the recipe ID from the API (as string) to match SavedRecipe's CharField
+    recipe_id_str = recipe.get('idMeal', str(id))
+    
+    # Check if already saved
+    saved_recipe, created = SavedRecipe.objects.get_or_create(
+        user=request.user,
+        recipe_id=recipe_id_str,
+        defaults={
+            'recipe_name': recipe.get('strMeal', ''),
+            'recipe_image': recipe.get('strMealThumb', ''),
+        }
+    )
+    
+    if created:
+        return JsonResponse({'status': 'saved', 'message': 'Recipe saved successfully'})
+    else:
+        saved_recipe.delete()
+        return JsonResponse({'status': 'unsaved', 'message': 'Recipe removed from saved'})
+
+
+@login_required
+def planner(request):
+    """Weekly meal planner with kanban interface."""
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    meal_slots = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+    
+    # Get saved recipes for the user
+    saved_recipes = SavedRecipe.objects.filter(user=request.user)
+    
+    # Get meal plans grouped by day and meal slot
+    meal_plans = WeeklyMealPlan.objects.filter(user=request.user).select_related('saved_recipe')
+    
+    # Organize meal plans by day and meal slot
+    planner_data = {}
+    for day in days:
+        planner_data[day] = {}
+        for meal_slot in meal_slots:
+            planner_data[day][meal_slot] = [
+                plan for plan in meal_plans 
+                if plan.day == day and plan.meal_slot == meal_slot
+            ]
+    
+    template_data = {
+        'title': 'Weekly Meal Planner',
+        'days': days,
+        'meal_slots': meal_slots,
+        'saved_recipes': saved_recipes,
+        'planner_data': planner_data,
+    }
+    return render(request, 'recipes/planner.html', {'template_data': template_data})
+
+
+@login_required
+@require_POST
+def add_to_planner(request):
+    """Add a saved recipe to a specific day and meal slot."""
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+    
+    saved_recipe_id = request.POST.get('saved_recipe_id')
+    day = request.POST.get('day')
+    meal_slot = request.POST.get('meal_slot')
+    
+    if not all([saved_recipe_id, day, meal_slot]):
+        return JsonResponse({'error': 'Missing required fields'}, status=400)
+    
+    # Validate day and meal_slot
+    valid_days = [d[0] for d in WeeklyMealPlan.DAYS_OF_WEEK]
+    valid_meal_slots = [m[0] for m in WeeklyMealPlan.MEAL_SLOTS]
+    
+    if day not in valid_days or meal_slot not in valid_meal_slots:
+        return JsonResponse({'error': 'Invalid day or meal slot'}, status=400)
+    
+    # Get saved recipe
+    try:
+        saved_recipe = SavedRecipe.objects.get(id=saved_recipe_id, user=request.user)
+    except SavedRecipe.DoesNotExist:
+        return JsonResponse({'error': 'Saved recipe not found'}, status=404)
+    
+    # Create meal plan entry
+    meal_plan = WeeklyMealPlan.objects.create(
+        user=request.user,
+        saved_recipe=saved_recipe,
+        day=day,
+        meal_slot=meal_slot
+    )
+    
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Recipe added to planner',
+        'meal_plan_id': meal_plan.id,
+        'recipe_name': saved_recipe.recipe_name,
+        'recipe_image': saved_recipe.recipe_image,
+    })
+
+
+@login_required
+@require_POST
+def remove_from_planner(request, meal_plan_id):
+    """Remove a recipe from the planner."""
+    try:
+        meal_plan = WeeklyMealPlan.objects.get(id=meal_plan_id, user=request.user)
+        meal_plan.delete()
+        return JsonResponse({'status': 'success', 'message': 'Recipe removed from planner'})
+    except WeeklyMealPlan.DoesNotExist:
+        return JsonResponse({'error': 'Meal plan not found'}, status=404)
