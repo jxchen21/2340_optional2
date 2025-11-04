@@ -13,7 +13,7 @@
       <div class="col">
         <form method="get" class="form-inline">
           <div class="input-group mb-2">
-            <input type="text" name="category" placeholder="Category (e.g., Dessert)" class="form-control" value="{{ template_data.category_term|default_if_none:'' }}">
+            <input type="text" name="category" placeholder="Category or meal name (e.g., Dessert or pizza)" class="form-control" value="{{ template_data.category_term|default_if_none:'' }}">
             <input type="text" name="region" placeholder="Region (e.g., Italian)" class="form-control ml-2" value="{{ template_data.region_term|default_if_none:'' }}">
             <div class="input-group-append">
               <button class="btn btn-dark" type="submit">Search</button>

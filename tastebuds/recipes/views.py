@@ -29,6 +29,17 @@ def fetch_by_category(category):
         return []
 
 
+def search_by_name(term):
+    """Search meals by name (allows more specific lookups like 'pizza')."""
+    url = f'https://www.themealdb.com/api/json/v1/1/search.php?s={term}'
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        return data.get('meals') or []
+    except Exception:
+        return []
+
+
 def fetch_by_region(region):
     """Fetch meals filtered by area/region from TheMealDB."""
     url = f'https://www.themealdb.com/api/json/v1/1/filter.php?a={region}'
@@ -79,9 +90,22 @@ def index(request):
         else:
             # Prefer category if provided, otherwise region
             if category:
-                results = fetch_by_category(category)
-                template_data['search_type'] = 'Category'
-                template_data['search_term'] = category
+                # First try category filter (broad categories like 'Dessert')
+                cat_results = fetch_by_category(category)
+                # Also attempt name search (for specific items like 'pizza')
+                name_results = search_by_name(category)
+
+                # Prefer category results if they exist; otherwise fall back to name search
+                if cat_results:
+                    results = cat_results
+                    template_data['search_type'] = 'Category'
+                    template_data['search_term'] = category
+                else:
+                    results = name_results
+                    template_data['search_type'] = 'Name Search'
+                    template_data['search_term'] = category
+
+                # Preserve both form fields appropriately
                 template_data['category_term'] = category
                 template_data['region_term'] = ''
             else:
