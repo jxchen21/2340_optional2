@@ -6,7 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Avg
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
-from .models import Rating, SavedRecipe, WeeklyMealPlan
+from .models import Rating, SavedRecipe, WeeklyMealPlan, ShoppingItem
 from .forms import RatingForm
 
 
@@ -154,7 +154,7 @@ def show(request, id):
 
     # Get all ratings for this recipe
     ratings = Rating.objects.filter(recipe_id=id).select_related('user')
-    
+
     # Calculate average rating
     avg_rating = ratings.aggregate(Avg('rating'))['rating__avg']
     avg_rating = round(avg_rating, 1) if avg_rating else None
@@ -229,7 +229,7 @@ def save_recipe(request, id):
     """Save or unsave a recipe."""
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Authentication required'}, status=401)
-    
+
     # Fetch recipe details from API
     url = f'https://www.themealdb.com/api/json/v1/1/lookup.php?i={id}'
     try:
@@ -238,13 +238,13 @@ def save_recipe(request, id):
         recipe = data.get('meals', [None])[0]
     except Exception:
         return JsonResponse({'error': 'Recipe not found'}, status=404)
-    
+
     if not recipe:
         return JsonResponse({'error': 'Recipe not found'}, status=404)
-    
+
     # Use the recipe ID from the API (as string) to match SavedRecipe's CharField
     recipe_id_str = recipe.get('idMeal', str(id))
-    
+
     # Check if already saved
     saved_recipe, created = SavedRecipe.objects.get_or_create(
         user=request.user,
@@ -254,7 +254,7 @@ def save_recipe(request, id):
             'recipe_image': recipe.get('strMealThumb', ''),
         }
     )
-    
+
     if created:
         return JsonResponse({'status': 'saved', 'message': 'Recipe saved successfully'})
     else:
@@ -267,23 +267,23 @@ def planner(request):
     """Weekly meal planner with kanban interface."""
     days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     meal_slots = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
-    
+
     # Get saved recipes for the user
     saved_recipes = SavedRecipe.objects.filter(user=request.user)
-    
+
     # Get meal plans grouped by day and meal slot
     meal_plans = WeeklyMealPlan.objects.filter(user=request.user).select_related('saved_recipe')
-    
+
     # Organize meal plans by day and meal slot
     planner_data = {}
     for day in days:
         planner_data[day] = {}
         for meal_slot in meal_slots:
             planner_data[day][meal_slot] = [
-                plan for plan in meal_plans 
+                plan for plan in meal_plans
                 if plan.day == day and plan.meal_slot == meal_slot
             ]
-    
+
     template_data = {
         'title': 'Weekly Meal Planner',
         'days': days,
@@ -300,27 +300,27 @@ def add_to_planner(request):
     """Add a saved recipe to a specific day and meal slot."""
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Authentication required'}, status=401)
-    
+
     saved_recipe_id = request.POST.get('saved_recipe_id')
     day = request.POST.get('day')
     meal_slot = request.POST.get('meal_slot')
-    
+
     if not all([saved_recipe_id, day, meal_slot]):
         return JsonResponse({'error': 'Missing required fields'}, status=400)
-    
+
     # Validate day and meal_slot
     valid_days = [d[0] for d in WeeklyMealPlan.DAYS_OF_WEEK]
     valid_meal_slots = [m[0] for m in WeeklyMealPlan.MEAL_SLOTS]
-    
+
     if day not in valid_days or meal_slot not in valid_meal_slots:
         return JsonResponse({'error': 'Invalid day or meal slot'}, status=400)
-    
+
     # Get saved recipe
     try:
         saved_recipe = SavedRecipe.objects.get(id=saved_recipe_id, user=request.user)
     except SavedRecipe.DoesNotExist:
         return JsonResponse({'error': 'Saved recipe not found'}, status=404)
-    
+
     # Create meal plan entry
     meal_plan = WeeklyMealPlan.objects.create(
         user=request.user,
@@ -328,7 +328,7 @@ def add_to_planner(request):
         day=day,
         meal_slot=meal_slot
     )
-    
+
     return JsonResponse({
         'status': 'success',
         'message': 'Recipe added to planner',
@@ -348,3 +348,110 @@ def remove_from_planner(request, meal_plan_id):
         return JsonResponse({'status': 'success', 'message': 'Recipe removed from planner'})
     except WeeklyMealPlan.DoesNotExist:
         return JsonResponse({'error': 'Meal plan not found'}, status=404)
+
+
+@login_required
+def shopping_list(request):
+    """Shopping list page that aggregates ingredients from saved recipes."""
+    # Get all saved recipes for the user
+    saved_recipes = SavedRecipe.objects.filter(user=request.user)
+
+    # Aggregate unique ingredients from all saved recipes
+    all_ingredients = set()
+    ingredients_by_recipe = {}
+
+    for saved_recipe in saved_recipes:
+        # Fetch recipe details from API
+        url = f'https://www.themealdb.com/api/json/v1/1/lookup.php?i={saved_recipe.recipe_id}'
+        try:
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            recipe = data.get('meals', [None])[0]
+
+            if recipe:
+                recipe_ingredients = []
+                for i in range(1, 21):
+                    ingredient = recipe.get(f'strIngredient{i}')
+                    if ingredient and ingredient.strip():
+                        ingredient_name = ingredient.strip()
+                        all_ingredients.add(ingredient_name)
+                        recipe_ingredients.append(ingredient_name)
+
+                if recipe_ingredients:
+                    ingredients_by_recipe[saved_recipe.recipe_name] = recipe_ingredients
+        except Exception:
+            continue
+
+    # Get existing shopping items
+    shopping_items = ShoppingItem.objects.filter(user=request.user)
+    existing_item_names = {item.name for item in shopping_items}
+    # Create a mapping of item names to IDs for easy lookup
+    item_name_to_id = {item.name: item.id for item in shopping_items}
+
+    # Separate ingredients into: from recipes (not in shopping list) and already in shopping list
+    recipe_ingredients_not_in_list = sorted(all_ingredients - existing_item_names)
+    recipe_ingredients_in_list = sorted([(name, item_name_to_id[name]) for name in (all_ingredients & existing_item_names)], key=lambda x: x[0])
+
+    # Get custom shopping items (not from recipes) with IDs
+    custom_items = sorted([(item.name, item.id) for item in shopping_items if item.name not in all_ingredients], key=lambda x: x[0])
+
+    template_data = {
+        'title': 'Shopping List',
+        'recipe_ingredients_not_in_list': recipe_ingredients_not_in_list,
+        'recipe_ingredients_in_list': recipe_ingredients_in_list,
+        'custom_items': custom_items,
+        'all_shopping_items': shopping_items,
+        'ingredients_by_recipe': ingredients_by_recipe,
+    }
+    return render(request, 'recipes/shopping_list.html', {'template_data': template_data})
+
+
+@login_required
+@require_POST
+def add_shopping_item(request):
+    """Add an item to the shopping list."""
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    item_name = request.POST.get('name', '').strip()
+
+    if not item_name:
+        return JsonResponse({'error': 'Item name is required'}, status=400)
+
+    # Create shopping item (unique_together constraint will prevent duplicates)
+    shopping_item, created = ShoppingItem.objects.get_or_create(
+        user=request.user,
+        name=item_name,
+    )
+
+    if created:
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Item added to shopping list',
+            'item_id': shopping_item.id,
+            'item_name': shopping_item.name,
+        })
+    else:
+        return JsonResponse({
+            'status': 'exists',
+            'message': 'Item already in shopping list',
+            'item_id': shopping_item.id,
+            'item_name': shopping_item.name,
+        })
+
+
+@login_required
+@require_POST
+def remove_shopping_item(request, item_id):
+    """Remove an item from the shopping list."""
+    try:
+        shopping_item = ShoppingItem.objects.get(id=item_id, user=request.user)
+        item_name = shopping_item.name
+        shopping_item.delete()
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Item removed from shopping list',
+            'item_name': item_name,
+        })
+    except ShoppingItem.DoesNotExist:
+        return JsonResponse({'error': 'Shopping item not found'}, status=404)

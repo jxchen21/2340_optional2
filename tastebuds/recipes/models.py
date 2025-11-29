@@ -26,11 +26,11 @@ class SavedRecipe(models.Model):
     recipe_name = models.CharField(max_length=200)
     recipe_image = models.URLField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
     class Meta:
         unique_together = ['user', 'recipe_id']
         ordering = ['-created_at']
-    
+
     def __str__(self):
         return f"{self.user.username} - {self.recipe_name}"
 
@@ -46,23 +46,37 @@ class WeeklyMealPlan(models.Model):
         ('Saturday', 'Saturday'),
         ('Sunday', 'Sunday'),
     ]
-    
+
     MEAL_SLOTS = [
         ('Breakfast', 'Breakfast'),
         ('Lunch', 'Lunch'),
         ('Dinner', 'Dinner'),
         ('Snack', 'Snack'),
     ]
-    
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='meal_plans')
     saved_recipe = models.ForeignKey(SavedRecipe, on_delete=models.CASCADE, related_name='meal_plans')
     day = models.CharField(max_length=10, choices=DAYS_OF_WEEK)
     meal_slot = models.CharField(max_length=10, choices=MEAL_SLOTS)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         ordering = ['day', 'meal_slot', 'created_at']
-    
+
     def __str__(self):
         return f"{self.user.username} - {self.day} {self.meal_slot}: {self.saved_recipe.recipe_name}"
+
+
+class ShoppingItem(models.Model):
+    """Model to store shopping list items for users."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='shopping_items')
+    name = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['user', 'name']
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.user.username} - {self.name}"

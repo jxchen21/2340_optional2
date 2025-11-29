@@ -1,0 +1,274 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+<div class="p-3">
+  <div class="container">
+    <div class="row mt-3">
+      <div class="col mx-auto mb-3">
+        <h2>{{ template_data.title }}</h2>
+        <hr />
+      </div>
+    </div>
+
+    {% if not user.is_authenticated %}
+    <div class="alert alert-warning">
+      Please <a href="{% url 'accounts.login' %}">login</a> to use the shopping list.
+    </div>
+    {% else %}
+
+    <!-- Add Item Form -->
+    <div class="row mb-4">
+      <div class="col-md-12">
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">Add Item to Shopping List</h5>
+            <form id="add-item-form" class="d-flex">
+              {% csrf_token %}
+              <input type="text"
+                     id="new-item-input"
+                     class="form-control me-2"
+                     placeholder="Enter item name..."
+                     required>
+              <button type="submit" class="btn btn-primary">Add Item</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <!-- Ingredients from Saved Recipes -->
+      <div class="col-md-6 mb-4">
+        <div class="card">
+          <div class="card-header bg-info text-white">
+            <h5 class="mb-0">Ingredients from Saved Recipes</h5>
+          </div>
+          <div class="card-body" style="max-height: 600px; overflow-y: auto;">
+            {% if template_data.recipe_ingredients_not_in_list or template_data.recipe_ingredients_in_list %}
+              {% if template_data.recipe_ingredients_in_list %}
+                <h6 class="text-success mb-3">Already in Shopping List:</h6>
+                <ul class="list-group mb-3">
+                  {% for ingredient, item_id in template_data.recipe_ingredients_in_list %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                      <span>{{ ingredient }}</span>
+                      <button class="btn btn-sm btn-danger remove-item-btn"
+                              data-item-id="{{ item_id }}"
+                              data-item-name="{{ ingredient }}">
+                        <i class="fas fa-trash"></i> Remove
+                      </button>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+
+              {% if template_data.recipe_ingredients_not_in_list %}
+                <h6 class="text-primary mb-3">Not in Shopping List:</h6>
+                <ul class="list-group">
+                  {% for ingredient in template_data.recipe_ingredients_not_in_list %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                      <span>{{ ingredient }}</span>
+                      <button class="btn btn-sm btn-success add-ingredient-btn"
+                              data-ingredient-name="{{ ingredient }}">
+                        <i class="fas fa-plus"></i> Add
+                      </button>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            {% else %}
+              <p class="text-muted">
+                No saved recipes found.
+                <a href="{% url 'recipes.index' %}">Browse recipes</a> and save some to see ingredients here!
+              </p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Shopping List Items -->
+      <div class="col-md-6 mb-4">
+        <div class="card">
+          <div class="card-header bg-success text-white">
+            <h5 class="mb-0">My Shopping List</h5>
+          </div>
+          <div class="card-body" style="max-height: 600px; overflow-y: auto;">
+            {% if template_data.all_shopping_items %}
+              <ul class="list-group" id="shopping-list-items">
+                {% for item in template_data.all_shopping_items %}
+                  <li class="list-group-item d-flex justify-content-between align-items-center shopping-item"
+                      data-item-id="{{ item.id }}">
+                    <span>
+                      <i class="fas fa-shopping-cart me-2"></i>
+                      {{ item.name }}
+                    </span>
+                    <button class="btn btn-sm btn-danger remove-item-btn"
+                            data-item-id="{{ item.id }}"
+                            data-item-name="{{ item.name }}">
+                      <i class="fas fa-trash"></i> Remove
+                    </button>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="text-muted">Your shopping list is empty. Add items from saved recipes or manually add items above.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ingredients by Recipe (Optional Info Section) -->
+    {% if template_data.ingredients_by_recipe %}
+    <div class="row mt-4">
+      <div class="col-md-12">
+        <div class="card">
+          <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0">Ingredients by Recipe</h5>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              {% for recipe_name, ingredients in template_data.ingredients_by_recipe.items %}
+                <div class="col-md-4 mb-3">
+                  <h6>{{ recipe_name }}</h6>
+                  <ul class="list-unstyled">
+                    {% for ingredient in ingredients %}
+                      <li class="text-muted">
+                        <i class="fas fa-circle" style="font-size: 0.5rem;"></i> {{ ingredient }}
+                      </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+  </div>
+</div>
+
+<script>
+// Helper function to get CSRF token
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Add item form submission
+document.getElementById('add-item-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const itemName = document.getElementById('new-item-input').value.trim();
+
+    if (!itemName) {
+        alert('Please enter an item name');
+        return;
+    }
+
+    addShoppingItem(itemName);
+});
+
+// Add ingredient from recipe list
+document.addEventListener('click', function(e) {
+    if (e.target.closest('.add-ingredient-btn')) {
+        const btn = e.target.closest('.add-ingredient-btn');
+        const ingredientName = btn.getAttribute('data-ingredient-name');
+        addShoppingItem(ingredientName);
+    }
+});
+
+// Remove item from shopping list
+document.addEventListener('click', function(e) {
+    if (e.target.closest('.remove-item-btn')) {
+        const btn = e.target.closest('.remove-item-btn');
+        const itemId = btn.getAttribute('data-item-id');
+
+        if (itemId) {
+            removeShoppingItem(itemId, btn);
+        } else {
+            alert('Unable to remove item. Please refresh the page and try again.');
+        }
+    }
+});
+
+function addShoppingItem(itemName) {
+    const csrfToken = getCookie('csrftoken');
+    const formData = new FormData();
+    formData.append('name', itemName);
+
+    fetch('{% url "recipes.add_shopping_item" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrfToken,
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success' || data.status === 'exists') {
+            // Clear the input
+            document.getElementById('new-item-input').value = '';
+
+            // Reload the page to show updated list
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to add item'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred. Please try again.');
+    });
+}
+
+function removeShoppingItem(itemId, buttonElement) {
+    const csrfToken = getCookie('csrftoken');
+
+    fetch(`/recipes/shopping-list/remove/${itemId}/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrfToken,
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Remove the item from the DOM
+            const listItem = buttonElement.closest('.shopping-item, .list-group-item');
+            if (listItem) {
+                listItem.remove();
+            }
+
+            // If shopping list is empty, show message
+            const shoppingList = document.getElementById('shopping-list-items');
+            if (shoppingList && shoppingList.children.length === 0) {
+                shoppingList.parentElement.innerHTML = '<p class="text-muted">Your shopping list is empty. Add items from saved recipes or manually add items above.</p>';
+            }
+
+            // Reload to update the recipe ingredients section
+            setTimeout(() => location.reload(), 500);
+        } else {
+            alert('Error: ' + (data.error || 'Failed to remove item'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred. Please try again.');
+    });
+}
+</script>
+
+{% endblock content %}
+
