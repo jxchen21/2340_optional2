@@ -1,0 +1,418 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+<div class="p-3">
+  <div class="container">
+    <div class="row mt-3">
+      <div class="col mx-auto mb-3">
+        <h2>{{ template_data.title }}</h2>
+        <hr />
+      </div>
+    </div>
+
+    {% if not user.is_authenticated %}
+    <div class="alert alert-warning">
+      Please <a href="{% url 'accounts.login' %}">login</a> to use the map feature.
+    </div>
+    {% else %}
+
+    {% if not template_data.google_maps_api_key %}
+    <div class="alert alert-danger">
+      <strong>Error:</strong> Google Maps API key is not configured. Please set GOOGLE_MAPS_API_KEY in your .env file.
+    </div>
+    {% else %}
+
+    <div class="row mb-3">
+      <div class="col-md-12">
+        <div class="card">
+          <div class="card-body">
+            <p class="mb-2">
+              <i class="fas fa-info-circle"></i>
+              This map will show grocery stores and shops near your location.
+              Please allow location access when prompted.
+            </p>
+            <button id="find-stores-btn" class="btn btn-primary">
+              <i class="fas fa-search"></i> Find Stores Near Me
+            </button>
+            <button id="clear-markers-btn" class="btn btn-secondary ms-2" style="display: none;">
+              <i class="fas fa-times"></i> Clear Results
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="loading-msg-container" class="row mb-3" style="display: none;">
+      <div class="col-md-12">
+        <div id="loading-msg" class="alert alert-info">
+          <i class="fas fa-spinner fa-spin"></i> Searching for nearby stores...
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-12">
+        <div id="map" style="height: 600px; width: 100%; border-radius: 0.375rem; border: 1px solid #dee2e6;"></div>
+      </div>
+    </div>
+
+    <div class="row mt-3">
+      <div class="col-md-12">
+        <div id="stores-list" class="card" style="display: none;">
+          <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">Nearby Stores</h5>
+          </div>
+          <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+            <ul id="stores-list-items" class="list-group">
+              <!-- Stores will be populated here -->
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+{% if template_data.google_maps_api_key %}
+<script src="https://maps.googleapis.com/maps/api/js?key={{ template_data.google_maps_api_key }}&libraries=places"></script>
+<script>
+let map;
+let userMarker;
+let storeMarkers = [];
+let infoWindows = [];
+let userLocation = null;
+let placesService;
+
+// Initialize map
+function initMap() {
+    // Default center (can be changed based on user location)
+    const defaultCenter = { lat: 40.7128, lng: -74.0060 }; // New York City
+
+    map = new google.maps.Map(document.getElementById('map'), {
+        center: defaultCenter,
+        zoom: 13,
+        mapTypeControl: true,
+        streetViewControl: true,
+        fullscreenControl: true,
+    });
+
+    // Initialize Places Service
+    placesService = new google.maps.places.PlacesService(map);
+    console.log('Map and Places Service initialized');
+}
+
+// Get user's current location
+function getUserLocation() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            function(position) {
+                userLocation = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                };
+
+                // Center map on user location
+                map.setCenter(userLocation);
+                map.setZoom(14);
+
+                // Add marker for user location
+                if (userMarker) {
+                    userMarker.setMap(null);
+                }
+
+                userMarker = new google.maps.Marker({
+                    position: userLocation,
+                    map: map,
+                    title: 'Your Location',
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 8,
+                        fillColor: '#4285F4',
+                        fillOpacity: 1,
+                        strokeColor: '#FFFFFF',
+                        strokeWeight: 2,
+                    },
+                });
+
+                // Find nearby stores
+                findNearbyStores();
+            },
+            function(error) {
+                alert('Error getting your location: ' + error.message + '\n\nPlease use the "Find Stores Near Me" button and allow location access.');
+                console.error('Geolocation error:', error);
+            }
+        );
+    } else {
+        alert('Geolocation is not supported by your browser.');
+    }
+}
+
+// Find nearby grocery stores using Places API
+function findNearbyStores() {
+    if (!userLocation) {
+        alert('Please allow location access first.');
+        return;
+    }
+
+    if (!placesService) {
+        console.error('PlacesService not initialized');
+        alert('Map service not ready. Please refresh the page.');
+        return;
+    }
+
+    // Clear existing markers
+    clearStoreMarkers();
+
+    // Show loading message
+    const loadingContainer = document.getElementById('loading-msg-container');
+    if (loadingContainer) {
+        loadingContainer.style.display = 'block';
+    }
+
+    // Search for grocery stores - try multiple searches for different types
+    // Note: nearbySearch only accepts a single type string, not an array
+    const searchTypes = ['grocery_or_supermarket', 'supermarket'];
+    let completedSearches = 0;
+    let allResults = [];
+    const seenPlaceIds = new Set();
+
+    searchTypes.forEach((searchType) => {
+        const request = {
+            location: userLocation,
+            radius: 5000, // 5km radius
+            type: searchType  // Single string, not array
+        };
+
+        placesService.nearbySearch(request, function(results, status) {
+            completedSearches++;
+            console.log(`Search for ${searchType}:`, status, results ? results.length : 0, 'results');
+
+            if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+                // Filter out duplicates by place_id
+                results.forEach(place => {
+                    if (place.place_id && !seenPlaceIds.has(place.place_id)) {
+                        seenPlaceIds.add(place.place_id);
+                        allResults.push(place);
+                    }
+                });
+            } else if (status !== google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+                console.warn(`Search for ${searchType} returned status:`, status);
+            }
+
+            // When all searches complete, display results
+            if (completedSearches === searchTypes.length) {
+                const loadingContainer = document.getElementById('loading-msg-container');
+                if (loadingContainer) {
+                    loadingContainer.style.display = 'none';
+                }
+
+                if (allResults.length > 0) {
+                    console.log('Total unique stores found:', allResults.length);
+                    displayStores(allResults);
+                } else {
+                    // Try a text search as fallback
+                    console.log('No results from nearby search, trying text search...');
+                    tryTextSearch();
+                }
+            }
+        });
+    });
+}
+
+// Fallback text search if nearby search doesn't work
+function tryTextSearch() {
+    const request = {
+        query: 'grocery store supermarket',
+        location: userLocation,
+        radius: 5000
+    };
+
+    placesService.textSearch(request, function(results, status) {
+        console.log('Text search result:', status, results ? results.length : 0, 'results');
+
+        // Hide loading message
+        const loadingContainer = document.getElementById('loading-msg-container');
+        if (loadingContainer) {
+            loadingContainer.style.display = 'none';
+        }
+
+        if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
+            displayStores(results);
+        } else {
+            console.error('Text search also failed:', status);
+            const errorMsg = status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS
+                ? 'No grocery stores found nearby. Try expanding your search area or check your location.'
+                : 'Error searching for stores. Status: ' + status + '\n\nPlease check:\n1. Places API is enabled on your API key\n2. Your location permissions are granted\n3. Try a different location';
+            alert(errorMsg);
+        }
+    });
+}
+
+// Display stores on map and in list
+function displayStores(stores) {
+    console.log('Displaying', stores.length, 'stores');
+
+    const storesList = document.getElementById('stores-list');
+    const storesListItems = document.getElementById('stores-list-items');
+    storesListItems.innerHTML = '';
+
+    if (stores.length === 0) {
+        storesListItems.innerHTML = '<li class="list-group-item text-muted">No stores found</li>';
+        return;
+    }
+
+    stores.forEach((store, index) => {
+        // Create marker
+        const marker = new google.maps.Marker({
+            position: store.geometry.location,
+            map: map,
+            title: store.name,
+            animation: google.maps.Animation.DROP,
+        });
+
+        storeMarkers.push(marker);
+
+        // Create info window
+        const infoWindow = new google.maps.InfoWindow({
+            content: createInfoWindowContent(store),
+        });
+
+        infoWindows.push(infoWindow);
+
+        // Add click listener to marker
+        marker.addListener('click', function() {
+            // Close all other info windows
+            infoWindows.forEach(iw => iw.close());
+            infoWindow.open(map, marker);
+        });
+
+        // Add to list
+        const listItem = document.createElement('li');
+        listItem.className = 'list-group-item';
+        listItem.style.cursor = 'pointer';
+        listItem.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h6 class="mb-1">${store.name}</h6>
+                    <p class="mb-1 text-muted small">
+                        ${store.vicinity || store.formatted_address || 'Address not available'}
+                    </p>
+                    ${store.rating ? `<p class="mb-0 small">
+                        <i class="fas fa-star text-warning"></i> ${store.rating}
+                        (${store.user_ratings_total || 0} reviews)
+                    </p>` : ''}
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="showStoreOnMap(${index})">
+                    <i class="fas fa-map-marker-alt"></i>
+                </button>
+            </div>
+        `;
+
+        storesListItems.appendChild(listItem);
+    });
+
+    // Show the stores list
+    storesList.style.display = 'block';
+    document.getElementById('clear-markers-btn').style.display = 'inline-block';
+
+    // Fit map to show all markers
+    if (storeMarkers.length > 0) {
+        const bounds = new google.maps.LatLngBounds();
+        bounds.extend(userLocation);
+        storeMarkers.forEach(marker => bounds.extend(marker.getPosition()));
+        map.fitBounds(bounds);
+    }
+}
+
+// Create info window content
+function createInfoWindowContent(store) {
+    let content = `
+        <div style="min-width: 200px;">
+            <h6>${store.name}</h6>
+            <p class="mb-1 small">${store.vicinity || store.formatted_address || 'Address not available'}</p>
+    `;
+
+    if (store.rating) {
+        content += `
+            <p class="mb-1 small">
+                <i class="fas fa-star text-warning"></i> ${store.rating}
+                (${store.user_ratings_total || 0} reviews)
+            </p>
+        `;
+    }
+
+    if (store.opening_hours) {
+        const status = store.opening_hours.open_now ?
+            '<span class="text-success">Open Now</span>' :
+            '<span class="text-danger">Closed</span>';
+        content += `<p class="mb-0 small">${status}</p>`;
+    }
+
+    if (store.place_id) {
+        content += `
+            <a href="https://www.google.com/maps/place/?q=place_id:${store.place_id}"
+               target="_blank" class="btn btn-sm btn-primary mt-2">
+                <i class="fas fa-external-link-alt"></i> View on Google Maps
+            </a>
+        `;
+    }
+
+    content += '</div>';
+    return content;
+}
+
+// Show store on map when clicked from list
+function showStoreOnMap(index) {
+    if (storeMarkers[index]) {
+        map.setCenter(storeMarkers[index].getPosition());
+        map.setZoom(16);
+
+        // Close all info windows
+        infoWindows.forEach(iw => iw.close());
+
+        // Open info window for selected store
+        infoWindows[index].open(map, storeMarkers[index]);
+    }
+}
+
+// Clear all store markers
+function clearStoreMarkers() {
+    storeMarkers.forEach(marker => marker.setMap(null));
+    infoWindows.forEach(iw => iw.close());
+    storeMarkers = [];
+    infoWindows = [];
+    document.getElementById('stores-list').style.display = 'none';
+    document.getElementById('clear-markers-btn').style.display = 'none';
+}
+
+// Event listeners
+document.getElementById('find-stores-btn').addEventListener('click', function() {
+    if (!userLocation) {
+        getUserLocation();
+    } else {
+        findNearbyStores();
+    }
+});
+
+document.getElementById('clear-markers-btn').addEventListener('click', function() {
+    clearStoreMarkers();
+});
+
+// Initialize map when page loads
+window.addEventListener('load', function() {
+    // Wait a bit to ensure Google Maps API is fully loaded
+    if (typeof google !== 'undefined' && google.maps && google.maps.places) {
+        initMap();
+    } else {
+        console.error('Google Maps API not loaded properly');
+        alert('Error loading Google Maps. Please check your API key and ensure Places API is enabled.');
+    }
+});
+</script>
+{% endif %}
+
+{% endblock content %}
+

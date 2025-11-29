@@ -6,6 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Avg
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
+from django.conf import settings
 from .models import Rating, SavedRecipe, WeeklyMealPlan, ShoppingItem
 from .forms import RatingForm
 
@@ -455,3 +456,13 @@ def remove_shopping_item(request, item_id):
         })
     except ShoppingItem.DoesNotExist:
         return JsonResponse({'error': 'Shopping item not found'}, status=404)
+
+
+@login_required
+def map_view(request):
+    """Map view showing nearby grocery stores using Google Maps."""
+    template_data = {
+        'title': 'Find Grocery Stores',
+        'google_maps_api_key': settings.GOOGLE_MAPS_API_KEY,
+    }
+    return render(request, 'recipes/map.html', {'template_data': template_data})

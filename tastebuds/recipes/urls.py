@@ -10,4 +10,5 @@ urlpatterns = [
     path('shopping-list/', views.shopping_list, name='recipes.shopping_list'),
     path('shopping-list/add/', views.add_shopping_item, name='recipes.add_shopping_item'),
     path('shopping-list/remove/<int:item_id>/', views.remove_shopping_item, name='recipes.remove_shopping_item'),
+    path('map/', views.map_view, name='recipes.map'),
 ]
