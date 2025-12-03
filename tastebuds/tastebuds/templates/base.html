@@ -45,6 +45,9 @@
             <a class="nav-link" href="{% url 'recipes.planner' %}">Meal Planner</a>
             <a class="nav-link" href="{% url 'recipes.shopping_list' %}">Shopping List</a>
             {% endif %}
+            {% if user.is_staff or user.is_superuser %}
+            <a class="nav-link" href="{% url 'accounts.admin_dashboard' %}">Admin Dashboard</a>
+            {% endif %}
             <a class="nav-link"
                href="{% url 'home.about' %}">About</a>
             <div class="vr bg-white mx-2 d-none
